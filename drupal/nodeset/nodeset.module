@@ -1,0 +1,95 @@
+<?php
+
+/**
+ * Implements hook_node_insert().
+ * invoked on node creation
+ */
+function nodeset_node_insert($node) {
+  // affect only shopping_list with non-empty grocery
+  if ($node->type == 'shopping_list' && isset($node->field_grocery) && !empty($node->field_grocery['und'])) {
+    $list_id = $node->nid;
+    $grocery_name = $node->field_grocery['und'][count($node->field_grocery['und']) - 1]['first'];
+    $grocery_quantity = $node->field_grocery['und'][count($node->field_grocery['und']) - 1]['second'];
+    
+    $request_url = "http://meetup.cantina.org.il:80/buy/$list_id/$grocery_name/$grocery_quantity";
+    $response = drupal_http_request($request_url);
+    
+    if (isset($response) && in_array($response->code, array('200', '304'))) {
+      drupal_set_message(t('@qty of @name(s) item(s) have been added to list #@list_id', array(
+        '@qty' => $grocery_quantity,
+        '@name' => $grocery_name,
+        '@list_id' => $list_id,
+      )));
+    }
+    else {
+      drupal_set_message(t('Error occured.'));
+    }
+    
+    if (isset($_GET['debug']) && function_exists('dpm')) {
+      dpm($response);
+    }
+  }
+}
+
+/**
+ * Implements hook_node_update().
+ * invoked on node update
+ */
+function nodeset_node_update($node) {
+  // affect only shopping_list with non-empty grocery
+  if ($node->type == 'shopping_list' && isset($node->field_grocery) && !empty($node->field_grocery['und'])) {
+    module_invoke('meetup', 'node_insert', $node);
+  }
+}
+
+
+/**
+ * Process variables for node.tpl.php
+ *
+ * Most themes utilize their own copy of node.tpl.php. The default is located
+ * inside "modules/node/node.tpl.php". Look in there for the full list of
+ * variables.
+ *
+ * The $variables array contains the following arguments:
+ * - $node
+ * - $view_mode
+ * - $page
+ *
+ * @see node.tpl.php
+ */
+function nodeset_preprocess_node(&$variables) {
+  $request_url = "http://meetup.cantina.org.il:80/list/1";
+  $response = drupal_http_request($request_url);
+  $output = '<div class="field-label">'. t('Results fetched from remote DB') .':&nbsp;</div>';
+  
+  if (isset($response) && in_array($response->code, array('200', '304'))) {
+    $products = json_decode($response->data);
+    $list = array();
+    if (is_array($products)) {
+      foreach ($products as $row) {
+        $row = json_decode($row);
+        if ($row->listId == $variables['node']->nid) {
+          $list[] = $row;
+        }
+      }
+      
+      if (!empty($list)) {
+        foreach ($list as $grocery) {
+          $output .= <<<EOF
+          <div class='double-field container-inline'>
+            <div class='double-field-first'>$grocery->name&nbsp;</div>
+            <div class='double-field-second'>$grocery->quantity</div>
+          </div>
+EOF;
+        }
+      }
+      else {
+        $output = t('There are no records for current shopping list in the remote DB');
+      }
+      $variables['content']['remote_db'] = array(
+        '#markup' => "<div class='remote_db_result field'>$output</div>",
+        '#weight' => 101,
+      );
+    }
+  }
+}

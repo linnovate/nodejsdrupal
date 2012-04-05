@@ -1,0 +1,4 @@
+name = Node Set
+description = Example for setting remote REST server data upon drupal exec
+version = VERSION
+core = 7.x
